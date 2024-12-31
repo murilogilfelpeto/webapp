@@ -1,0 +1,77 @@
+version: '3.4'
+
+volumes:
+  prometheus_data: { }
+  grafana_data: { }
+
+services:
+  db:
+    image: postgres:latest
+    container_name: webapp_database
+    restart: always
+    environment:
+      POSTGRES_DB: webapp
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: felpeto
+    ports:
+      - "5432:5432"
+
+  flyway:
+    image: flyway/flyway
+    container_name: webapp_flyway
+    command: -url=jdbc:postgresql://db -schemas=webapp -user=app -password=felpeto -connectRetries=60 migrate
+    volumes:
+      - ./flyway/db:/flyway/sql
+    depends_on:
+      - db
+
+  nginx:
+    container_name: webapp_nginx
+    image: nginx:latest
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    environment:
+      NGINX_PORT: 5000
+      NGINX_HOST: 127.0.0.1
+    network_mode: host
+    expose:
+      - 5000
+
+  prometheus:
+    container_name: webapp_prometheus
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.external-url=/prometheus/'
+      - '--web.route-prefix=/'
+      - '--web.enable-lifecycle'
+    expose:
+      - 9090
+    restart: always
+    network_mode: host
+    labels:
+      org.label-schema.group: "monitoring"
+
+  grafana:
+    container_name: webapp_grafana
+    image: grafana/grafana-oss:8.2.4
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini
+      - ./grafana/provisioning:/etc/grafana/provisioning/
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    restart: unless-stopped
+    network_mode: host
+    labels:
+      org.label-schema.group: "monitoring"
+    expose:
+      - 3000
